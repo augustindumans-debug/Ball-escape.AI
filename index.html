@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MonPlateforme.AI - Générateur</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0b0c10;
+            color: white;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Panneau IA (Menu gauche) */
+        .sidebar {
+            width: 320px;
+            background-color: #1f2833;
+            border-right: 2px solid #45a29e;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            z-index: 10;
+            box-shadow: 5px 0 15px rgba(69, 162, 158, 0.2);
+        }
+
+        h1 {
+            font-size: 22px;
+            color: #66fcf1;
+            text-shadow: 0 0 10px rgba(102, 252, 241, 0.5);
+            margin: 0;
+        }
+
+        .ai-prompt-box {
+            background: #0b0c10;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #45a29e;
+        }
+
+        textarea {
+            width: 100%;
+            height: 80px;
+            background: transparent;
+            border: none;
+            color: white;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            font-size: 14px;
+        }
+
+        button {
+            background: #45a29e;
+            color: #0b0c10;
+            border: none;
+            padding: 15px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.3s;
+            width: 100%;
+        }
+
+        button:hover {
+            background: #66fcf1;
+            box-shadow: 0 0 15px #66fcf1;
+        }
+
+        .ai-status {
+            font-size: 13px;
+            color: #c5c6c7;
+            font-style: italic;
+            margin-top: 10px;
+        }
+
+        /* Zone Vidéo (Droite) */
+        .main-content {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            background: radial-gradient(circle at center, #1a1a2e 0%, #000000 100%);
+        }
+
+        #simulation-container {
+            border: 1px solid #333;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h1>🤖 Générateur IA</h1>
+        
+        <p style="font-size: 14px; color: #c5c6c7;">Décris la simulation que tu souhaites créer. L'IA ajustera la physique automatiquement.</p>
+        
+        <div class="ai-prompt-box">
+            <textarea id="ai-prompt" placeholder="Exemple : Fais une simulation très rapide avec des balles de feu, sans gravité..."></textarea>
+        </div>
+        
+        <button onclick="genererAvecIA()">✨ Générer la vidéo</button>
+        <div id="ai-feedback" class="ai-status">Prêt.</div>
+    </div>
+
+    <div class="main-content">
+        <div id="simulation-container"></div>
+    </div>
+
+    <script>
+        const { Engine, Render, Runner, Bodies, Composite, Events, Body, Vector } = Matter;
+
+        // Variables globales modifiables par l'IA
+        let engine = Engine.create({ gravity: { x: 0, y: 0 } });
+        let currentColors = ['#66FCF1', '#C5A3FF', '#FFFFFF']; // Couleurs par défaut (Espace)
+        let ballSpeed = 7;
+        let balls = [];
+
+        // Rendu
+        const render = Render.create({
+            element: document.getElementById('simulation-container'),
+            engine: engine,
+            options: {
+                width: 450,
+                height: 800,
+                wireframes: false,
+                background: 'transparent',
+                pixelRatio: window.devicePixelRatio
+            }
+        });
+
+        const centerX = 225;
+        const centerY = 400;
+        const ringRadius = 170;
+
+        // Création de l'anneau
+        const wallData = [];
+        for (let i = 0; i < 60; i++) {
+            if (i >= 0 && i <= 6) continue; // Porte
+
+            const angle = (i / 60) * Math.PI * 2;
+            const wall = Bodies.rectangle(
+                centerX + Math.cos(angle) * ringRadius,
+                centerY + Math.sin(angle) * ringRadius,
+                (2 * Math.PI * ringRadius / 60) + 2, 6, 
+                { isStatic: true, angle: angle, render: { fillStyle: '#ffffff' }, restitution: 1 }
+            );
+            wallData.push({ body: wall, baseAngle: angle });
+            Composite.add(engine.world, wall);
+        }
+
+        // Création des balles
+        function createBall(x, y) {
+            const color = currentColors[Math.floor(Math.random() * currentColors.length)];
+            const ball = Bodies.circle(x, y, 9, {
+                restitution: 1, friction: 0, frictionAir: 0,
+                render: { fillStyle: color }, collisionFilter: { group: -1 }, bullet: true
+            });
+            const angle = Math.random() * Math.PI * 2;
+            Body.setVelocity(ball, { x: Math.cos(angle) * ballSpeed, y: Math.sin(angle) * ballSpeed });
+            return ball;
+        }
+
+        balls.push(createBall(centerX, centerY));
+        Composite.add(engine.world, balls[0]);
+
+        // Rotation
+        let currentRotation = 0;
+        Events.on(engine, 'beforeUpdate', () => {
+            currentRotation += 0.02;
+            wallData.forEach(item => {
+                const newAngle = item.baseAngle + currentRotation;
+                Body.setPosition(item.body, {
+                    x: centerX + Math.cos(newAngle) * ringRadius,
+                    y: centerY + Math.sin(newAngle) * ringRadius
+                });
+                Body.setAngle(item.body, newAngle);
+            });
+        });
+
+        // Evasion
+        Events.on(engine, 'afterUpdate', () => {
+            balls.forEach((ball) => {
+                if (engine.gravity.y === 0) { // On force la vitesse si pas de gravité
+                    const speed = Vector.magnitude(ball.velocity);
+                    if (speed > 0 && Math.abs(speed - ballSpeed) > 0.1) {
+                        Body.setVelocity(ball, Vector.mult(Vector.normalise(ball.velocity), ballSpeed));
+                    }
+                }
+
+                if (Vector.magnitude(Vector.sub(ball.position, { x: centerX, y: centerY })) > ringRadius + 30) {
+                    Body.setPosition(ball, { x: centerX, y: centerY });
+                    if (balls.length < 120) {
+                        for (let i = 0; i < 2; i++) {
+                            const newBall = createBall(centerX, centerY);
+                            balls.push(newBall);
+                            Composite.add(engine.world, newBall);
+                        }
+                    }
+                }
+            });
+        });
+
+        Render.run(render);
+        Runner.run(Runner.create(), engine);
+
+        /* =========================================
+           🧠 LE CERVEAU DE L'IA (Analyse de texte)
+           ========================================= */
+        function genererAvecIA() {
+            const prompt = document.getElementById('ai-prompt').value.toLowerCase();
+            const feedback = document.getElementById('ai-feedback');
+            
+            feedback.innerText = "L'IA analyse ton texte...";
+
+            setTimeout(() => {
+                let modifications = [];
+
+                // 1. Analyse des couleurs
+                if (prompt.includes("feu") || prompt.includes("rouge") || prompt.includes("lave")) {
+                    currentColors = ['#ff0000', '#ff5a00', '#ff9a00', '#ffce00'];
+                    modifications.push("thème feu activé");
+                } else if (prompt.includes("glace") || prompt.includes("bleu") || prompt.includes("froid")) {
+                    currentColors = ['#00ffff', '#0080ff', '#ffffff', '#a8e6cf'];
+                    modifications.push("thème glace activé");
+                } else if (prompt.includes("néon") || prompt.includes("cyberpunk")) {
+                    currentColors = ['#ff00ff', '#00ffff', '#39ff14'];
+                    modifications.push("thème néon activé");
+                }
+
+                // 2. Analyse de la Vitesse
+                if (prompt.includes("rapide") || prompt.includes("vitesse") || prompt.includes("flash")) {
+                    ballSpeed = 12; // Très rapide
+                    modifications.push("vitesse x2");
+                } else if (prompt.includes("lent") || prompt.includes("tortue")) {
+                    ballSpeed = 4; // Lent
+                    modifications.push("vitesse réduite");
+                }
+
+                // 3. Analyse de la Gravité
+                if (prompt.includes("gravité") || prompt.includes("lourd") || prompt.includes("tomber")) {
+                    engine.gravity.y = 0.8; // Active la gravité
+                    modifications.push("gravité terrestre activée");
+                } else if (prompt.includes("espace") || prompt.includes("zéro gravité") || prompt.includes("laser")) {
+                    engine.gravity.y = 0; // Mode laser
+                    modifications.push("zéro gravité activée");
+                }
+
+                // Appliquer les changements aux balles existantes
+                balls.forEach(ball => {
+                    ball.render.fillStyle = currentColors[Math.floor(Math.random() * currentColors.length)];
+                    if (engine.gravity.y === 0) {
+                        const angle = Math.random() * Math.PI * 2;
+                        Body.setVelocity(ball, { x: Math.cos(angle) * ballSpeed, y: Math.sin(angle) * ballSpeed });
+                    }
+                });
+
+                if (modifications.length === 0) {
+                    feedback.innerText = "L'IA n'a pas détecté de mots-clés. Simulation par défaut relancée.";
+                } else {
+                    feedback.innerText = "Succès ! " + modifications.join(", ") + " !";
+                }
+                
+                feedback.style.color = "#39ff14"; // Vert fluo pour le succès
+            }, 800); // Petit délai pour simuler le temps de calcul de l'IA
+        }
+    </script>
+</body>
+</html>
+
